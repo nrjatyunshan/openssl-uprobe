@@ -1,0 +1,2 @@
+[workspace]
+members = ["openssl-uprobe", "openssl-uprobe-common", "xtask"]
