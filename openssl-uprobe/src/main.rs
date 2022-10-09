@@ -28,6 +28,9 @@ async fn main() -> Result<(), anyhow::Error> {
         "../../target/bpfel-unknown-none/release/openssl-uprobe"
     ))?;
 
+    // TODO: 扫描 /proc/ 目录中的所有进程, 并从进程对应的 maps 里拿到 libssl
+    // 的绝对路径, 最后拼成 /proc/pid/root/path/to/libssl.so.x.x 的形式.
+    // 通过循环对每个有效的进程设置以下 4 个 hook 函数.
     let target = "libssl";
     let fn_name = "uprobe_enter_openssl_write";
     let program: &mut UProbe = bpf.program_mut(fn_name).unwrap().try_into()?;
