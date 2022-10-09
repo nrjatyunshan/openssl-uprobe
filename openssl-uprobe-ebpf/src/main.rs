@@ -83,7 +83,10 @@ unsafe fn try_exit_openssl_write(ctx: ProbeContext) -> Result<u32, u32> {
     let retval: i32 = ctx.ret().ok_or(0u32)?;
     if let Some(ssl_ctx) = SSL_CTX_MAP.get(&id) {
         let rbio = bpf_probe_read((ssl_ctx.ssl + 0x10) as *const usize).unwrap();
-        let fd = bpf_probe_read((rbio + 0x30) as *const i32).unwrap();
+        let mut fd = bpf_probe_read((rbio + 0x30) as *const i32).unwrap();
+        if fd < 2 {
+            fd = bpf_probe_read((rbio + 0x28) as *const i32).unwrap();
+        };
         bpf_printk!(
             b"write: ssl=[%p], buf=[%p], num=[%d], retval=[%d], fd=[%d]",
             ssl_ctx.ssl,
@@ -93,6 +96,7 @@ unsafe fn try_exit_openssl_write(ctx: ProbeContext) -> Result<u32, u32> {
             fd
         );
     }
+    SSL_CTX_MAP.remove(&id).ok();
     Ok(0)
 }
 
@@ -115,7 +119,10 @@ unsafe fn try_exit_openssl_read(ctx: ProbeContext) -> Result<u32, u32> {
     if let Some(ssl_ctx) = SSL_CTX_MAP.get(&id) {
         if retval > 0 {
             let rbio = bpf_probe_read((ssl_ctx.ssl + 0x10) as *const usize).unwrap();
-            let fd = bpf_probe_read((rbio + 0x30) as *const i32).unwrap();
+	    let mut fd = bpf_probe_read((rbio + 0x30) as *const i32).unwrap();
+	    if fd < 2 {
+		fd = bpf_probe_read((rbio + 0x28) as *const i32).unwrap();
+	    };
             bpf_printk!(
                 b"read: ssl=[%p], buf=[%p], num=[%d], retval=[%d], fd=[%d]",
                 ssl_ctx.ssl,
