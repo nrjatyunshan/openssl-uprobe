@@ -3,7 +3,7 @@
 
 use aya_bpf::{
     bpf_printk,
-    helpers::bpf_get_current_pid_tgid,
+    helpers::{bpf_get_current_pid_tgid, bpf_probe_read},
     macros::{map, uprobe, uretprobe},
     maps::HashMap,
     programs::ProbeContext,
@@ -12,8 +12,8 @@ use aya_bpf::{
 #[derive(Clone, Copy)]
 #[repr(C, packed)]
 pub struct SSLCtx {
-    pub ssl: *const u8,
-    pub buf: *const u8,
+    pub ssl: usize,
+    pub buf: usize,
     pub num: i32,
 }
 
@@ -67,8 +67,8 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 
 // int SSL_write(SSL *ssl, const void *buf, int num);
 unsafe fn try_enter_openssl_write(ctx: ProbeContext) -> Result<u32, u32> {
-    let ssl: *const u8 = ctx.arg(0).ok_or(0u32)?;
-    let buf: *const u8 = ctx.arg(1).ok_or(0u32)?;
+    let ssl: usize = ctx.arg(0).ok_or(0u32)?;
+    let buf: usize = ctx.arg(1).ok_or(0u32)?;
     let num: i32 = ctx.arg(2).ok_or(0u32)?;
 
     let id = bpf_get_current_pid_tgid();
@@ -82,22 +82,24 @@ unsafe fn try_exit_openssl_write(ctx: ProbeContext) -> Result<u32, u32> {
     let id = bpf_get_current_pid_tgid();
     let retval: i32 = ctx.ret().ok_or(0u32)?;
     if let Some(ssl_ctx) = SSL_CTX_MAP.get(&id) {
+        let rbio = bpf_probe_read((ssl_ctx.ssl + 0x10) as *const usize).unwrap();
+        let fd = bpf_probe_read((rbio + 0x30) as *const i32).unwrap();
         bpf_printk!(
-            b"write: ssl=[%p], buf=[%p], num=[%d], retval=[%d]",
+            b"write: ssl=[%p], buf=[%p], num=[%d], retval=[%d], fd=[%d]",
             ssl_ctx.ssl,
             ssl_ctx.buf,
             ssl_ctx.num,
-            retval
+            retval,
+            fd
         );
-        bpf_printk!(b"%s", ssl_ctx.buf);
     }
     Ok(0)
 }
 
 // int SSL_read(SSL *ssl, void *buf, int num);
 unsafe fn try_enter_openssl_read(ctx: ProbeContext) -> Result<u32, u32> {
-    let ssl: *const u8 = ctx.arg(0).ok_or(0u32)?;
-    let buf: *const u8 = ctx.arg(1).ok_or(0u32)?;
+    let ssl: usize = ctx.arg(0).ok_or(0u32)?;
+    let buf: usize = ctx.arg(1).ok_or(0u32)?;
     let num: i32 = ctx.arg(2).ok_or(0u32)?;
 
     let id = bpf_get_current_pid_tgid();
@@ -112,14 +114,16 @@ unsafe fn try_exit_openssl_read(ctx: ProbeContext) -> Result<u32, u32> {
     let retval: i32 = ctx.ret().ok_or(0u32)?;
     if let Some(ssl_ctx) = SSL_CTX_MAP.get(&id) {
         if retval > 0 {
+            let rbio = bpf_probe_read((ssl_ctx.ssl + 0x10) as *const usize).unwrap();
+            let fd = bpf_probe_read((rbio + 0x30) as *const i32).unwrap();
             bpf_printk!(
-                b"read: ssl=[%p], buf=[%p], num=[%d], retval=[%d]",
+                b"read: ssl=[%p], buf=[%p], num=[%d], retval=[%d], fd=[%d]",
                 ssl_ctx.ssl,
                 ssl_ctx.buf,
                 ssl_ctx.num,
-                retval
+                retval,
+                fd
             );
-            bpf_printk!(b"%s", ssl_ctx.buf);
         }
     }
     SSL_CTX_MAP.remove(&id).ok();
